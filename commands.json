@@ -1,36 +1,40 @@
 {
     "commands": {
-        "/hi": {
+        "hi": {
             "command": ["echo", "hello world"],
             "description": "输出 hello world"
         },
-        "/date": {
+        "date": {
             "command": ["date"],
             "description": "显示当前日期时间"
         },
-        "/hostname": {
+        "hostname": {
             "command": ["hostname"],
             "description": "显示主机名"
         },
-        "/sysinfo": {
+        "sysinfo": {
             "command": ["uname", "-a"],
             "description": "显示系统信息 (Linux)"
         },
-        "/disk": {
+        "disk": {
             "command": ["df", "-h"],
             "description": "显示磁盘使用情况"
         },
-        "/memory": {
+        "memory": {
             "command": ["free", "-h"],
             "description": "显示内存使用情况"
         },
-        "/processes": {
+        "processes": {
             "command": ["top", "-bn1"],
             "description": "显示进程列表"
         },
-        "/ip": {
+        "ip": {
             "command": ["ipconfig"],
             "description": "显示 IP 配置 (Windows)"
+        },
+        "update_blog": {
+            "command": ["bash", "-c", "cd /root/lxzyyds_blog && git pull && docker compose up -d --build"],
+            "description": "更新个人博客"
         }
     }
 }

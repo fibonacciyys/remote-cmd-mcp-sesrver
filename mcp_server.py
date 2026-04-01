@@ -160,37 +160,37 @@ def _get_server(config_path: str = "commands.json") -> RemoteCommandServer:
 mcp = FastMCP("Remote Command Server", host="0.0.0.0", port=8080, streamable_http_path="/mcp")
 
 
-@mcp.tool()
-def exec_cmd(cmd_key: str, args: list[str] = None) -> str:
-    """
-    执行预配置的远程命令
+def _register_dynamic_tools(srv: RemoteCommandServer):
+    """根据 commands.json 动态注册每个命令为独立的 MCP tool"""
+    for cmd_key, cmd_config in srv.commands.items():
+        # 工具名：去掉前导 /，如 /hi → hi, /deploy-blog → deploy_blog
+        tool_name = cmd_key.lstrip("/").replace("-", "_")
+        description = cmd_config.get("description", f"执行命令 {cmd_key}")
+        cmd_str = " ".join(cmd_config["command"])
 
-    Args:
-        cmd_key: 命令键，如 "/hi"
-        args: 额外的命令行参数（可选）
-    """
-    srv = _get_server()
-    result = srv.execute_command(cmd_key, args)
-    return json.dumps(result, ensure_ascii=False, indent=2)
+        # 创建闭包捕获当前命令
+        def make_handler(key, cfg):
+            def handler(args: list[str] = None) -> str:
+                result = srv.execute_command(key, args)
+                return json.dumps(result, ensure_ascii=False, indent=2)
+            return handler
 
+        mcp.tool(name=tool_name, description=f"{description}\n命令: {cmd_str}")(make_handler(cmd_key, cmd_config))
 
-@mcp.tool()
-def list_commands() -> str:
-    """列出所有可用的预配置命令"""
-    srv = _get_server()
-    return json.dumps(srv.get_available_commands(), ensure_ascii=False, indent=2)
+    logger.info(f"已注册 {len(srv.commands)} 个动态工具: {[k.lstrip('/').replace('-','_') for k in srv.commands.keys()]}")
 
 
 @mcp.tool()
 def reload_config(config_path: str = "commands.json") -> str:
     """
-    重新加载配置文件
+    重新加载配置文件，动态更新可用工具
 
     Args:
-        config_path: 配置文件路径（可选）
+        config_path: 配置文件路径（可选，默认 commands.json）
     """
     global _server
     _server = RemoteCommandServer(config_path)
+    _register_dynamic_tools(_server)
     return json.dumps({"success": True, "message": "配置已重新加载", "commands": list(_server.commands.keys())}, ensure_ascii=False, indent=2)
 
 
@@ -251,6 +251,7 @@ if __name__ == "__main__":
 
     # 预先加载命令配置
     _get_server(args.config)
+    _register_dynamic_tools(_server)
     logger.info(f"Remote Command MCP Server 启动中... (transport={args.transport})")
     logger.info(f"可用命令: {', '.join(_server.commands.keys())}")
 
