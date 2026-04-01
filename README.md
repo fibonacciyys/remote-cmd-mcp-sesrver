@@ -1,15 +1,15 @@
 # Remote Command MCP Server
 
-一个支持 **streamable-http** 传输的 MCP (Model Context Protocol) 服务器，用于在远程部署服务器上执行预配置的指令。
+一个支持 **streamable-http** 传输的 MCP (Model Context Protocol) 服务器，用于在远程部署服务器上执行预配置的指令。每个命令自动注册为独立的 MCP Tool，无需先查询再执行。
 
 ## 功能特性
 
 - 支持 MCP streamable-http 传输协议
-- 通过 JSON 配置文件管理命令
+- 通过 JSON 配置文件管理命令，**自动注册为独立 MCP Tool**
 - SK (Secret Key) 安全校验，支持时间戳防重放
 - 安全的命令执行（预配置命令，非任意命令）
 - 支持命令超时控制
-- 动态重载配置
+- 动态重载配置（运行时更新工具列表）
 
 ## 项目结构
 
@@ -37,9 +37,6 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Windows PowerShell:
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-
-# 或者使用 pip 安装
-pip install uv
 
 # 创建虚拟环境并安装依赖（一条命令搞定）
 uv venv && uv pip install -r requirements.txt
@@ -69,20 +66,22 @@ pip install -r requirements.txt
 
 ### 1. 命令配置 (`commands.json`)
 
+每个命令会自动注册为一个独立的 MCP Tool，工具名直接使用命令 key（`-` 替换为 `_`）。建议使用统一前缀命名，如 `remote_server_cmd_`，避免与其他 MCP Server 工具名冲突。
+
 ```json
 {
     "commands": {
-        "/hi": {
+        "remote_server_cmd_hi": {
             "command": ["echo", "hello world"],
             "description": "输出 hello world"
         },
-        "/date": {
+        "remote_server_cmd_date": {
             "command": ["date"],
-            "description": "显示当前日期"
+            "description": "显示当前日期时间"
         },
-        "/deploy": {
-            "command": ["bash", "-c", "cd /opt/myapp && docker compose up -d --build"],
-            "description": "部署应用"
+        "remote_server_cmd_update_blog": {
+            "command": ["bash", "-c", "cd /root/blog && git pull && docker compose up -d --build"],
+            "description": "更新个人博客"
         }
     }
 }
@@ -90,8 +89,9 @@ pip install -r requirements.txt
 
 | 字段 | 类型 | 描述 |
 |------|------|------|
+| key | string | 命令标识，同时作为 MCP Tool 名称（如 `remote_server_cmd_hi`） |
 | `command` | array | 要执行的命令及参数 |
-| `description` | string | 命令描述（可选） |
+| `description` | string | 命令描述，会作为 Tool 的描述展示给 MCP Client |
 
 ### 2. SK 安全配置 (`.sk`)
 
@@ -134,9 +134,7 @@ python mcp_server.py --help
 uv venv && source .venv/bin/activate && uv pip install -r requirements.txt
 
 # 使用 nohup 后台运行
-nohup .venv/bin/python mcp_server.py --transport streamable-http > mcp.log 2>&1 &
-
-# 或使用 systemd（推荐，见下方说明）
+nohup .venv/bin/python mcp_server.py --transport streamable-http > mcp_server.log 2>&1 &
 ```
 
 #### systemd 服务（推荐）
@@ -175,6 +173,7 @@ journalctl -u mcp-server -f        # 查看日志
 ```python
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+import time
 
 async def main():
     headers = {}
@@ -185,16 +184,19 @@ async def main():
     async with streamablehttp_client(
         "http://your-server:8080/mcp",
         headers=headers
-    ) as client:
-        async with ClientSession(client) as session:
+    ) as (read_stream, write_stream, _):
+        async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
 
-            # 列出所有可用命令
-            result = await session.call_tool("list_commands")
+            # 列出所有可用工具（commands.json 中的每个命令 + reload_config）
+            tools = await session.list_tools()
+            print([t.name for t in tools.tools])
+
+            # 直接调用命令，工具名就是命令 key
+            result = await session.call_tool("remote_server_cmd_hi")
             print(result)
 
-            # 执行命令
-            result = await session.call_tool("exec_cmd", {"cmd_key": "/hi"})
+            result = await session.call_tool("remote_server_cmd_update_blog")
             print(result)
 
 if __name__ == "__main__":
@@ -202,22 +204,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-### 方式二：Claude Desktop 配置（stdio 模式）
-
-在 `claude_desktop_config.json` 中添加：
-
-```json
-{
-    "mcpServers": {
-        "remote-cmd": {
-            "command": "python",
-            "args": ["/path/to/mcp_server.py", "--transport", "stdio"]
-        }
-    }
-}
-```
-
-### 方式三：Claude Desktop 配置（HTTP 模式）
+### 方式二：Claude Desktop 配置（HTTP 模式）
 
 ```json
 {
@@ -232,16 +219,23 @@ if __name__ == "__main__":
 }
 ```
 
+### 方式三：Claude Desktop 配置（stdio 模式）
+
+```json
+{
+    "mcpServers": {
+        "remote-cmd": {
+            "command": "python",
+            "args": ["/path/to/mcp_server.py", "--transport", "stdio"]
+        }
+    }
+}
+```
+
 ### 方式四：使用 curl 测试
 
 ```bash
-# 不带 SK
-curl -X POST http://localhost:8080/mcp \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
-
-# 带 SK 鉴权
+# 初始化连接
 TS=$(date +%s)
 curl -X POST http://localhost:8080/mcp \
   -H "Content-Type: application/json" \
@@ -253,24 +247,23 @@ curl -X POST http://localhost:8080/mcp \
 
 ## 可用工具
 
-### 1. exec_cmd
+`commands.json` 中的每个命令会自动注册为一个 MCP Tool，工具名为命令 key。例如：
 
-执行预配置的远程命令。
+| 工具名 | 对应命令 key | 描述 |
+|--------|-------------|------|
+| `remote_server_cmd_hi` | `remote_server_cmd_hi` | 输出 hello world |
+| `remote_server_cmd_date` | `remote_server_cmd_date` | 显示当前日期时间 |
+| `remote_server_cmd_hostname` | `remote_server_cmd_hostname` | 显示主机名 |
+| `remote_server_cmd_update_blog` | `remote_server_cmd_update_blog` | 更新个人博客 |
+
+此外还有一个内置工具：
+
+### reload_config
+
+重新加载配置文件，动态更新可用工具列表。
 
 **参数：**
-- `cmd_key` (string): 命令键，如 "/hi"
-- `args` (array, optional): 额外的命令行参数
-
-### 2. list_commands
-
-列出所有可用的预配置命令。
-
-### 3. reload_config
-
-重新加载配置文件。
-
-**参数：**
-- `config_path` (string, optional): 配置文件路径
+- `config_path` (string, optional): 配置文件路径，默认 `commands.json`
 
 ## 安全说明
 
@@ -289,8 +282,8 @@ curl -X POST http://localhost:8080/mcp \
 
 ```json
 {
-    "/ip": {"command": ["ipconfig"], "description": "显示 IP 配置"},
-    "/dir": {"command": ["cmd", "/c", "dir"], "description": "列出目录"}
+    "remote_server_cmd_ip": {"command": ["ipconfig"], "description": "显示 IP 配置"},
+    "remote_server_cmd_dir": {"command": ["cmd", "/c", "dir"], "description": "列出目录"}
 }
 ```
 
@@ -298,7 +291,7 @@ curl -X POST http://localhost:8080/mcp \
 
 ```json
 {
-    "/deploy": {
+    "remote_server_cmd_deploy": {
         "command": ["bash", "-c", "cd /opt/myapp && docker compose up -d --build"],
         "description": "部署应用"
     }
@@ -306,6 +299,19 @@ curl -X POST http://localhost:8080/mcp \
 ```
 
 > 注意：MCP Server 需要部署在宿主机上（而非 Docker 容器内），才能直接执行宿主机的 docker 命令。
+
+### Q: 如何运行多步命令？
+
+使用 `bash -c` 将多条命令串联：
+
+```json
+{
+    "remote_server_cmd_update_blog": {
+        "command": ["bash", "-c", "cd /root/blog && git pull && docker compose up -d --build"],
+        "description": "拉取代码并重新部署博客"
+    }
+}
+```
 
 ### Q: SK 校验失败？
 

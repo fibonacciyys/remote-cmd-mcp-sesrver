@@ -1,38 +1,38 @@
 {
     "commands": {
-        "hi": {
+        "remote_server_cmd_hi": {
             "command": ["echo", "hello world"],
             "description": "输出 hello world"
         },
-        "date": {
+        "remote_server_cmd_date": {
             "command": ["date"],
             "description": "显示当前日期时间"
         },
-        "hostname": {
+        "remote_server_cmd_hostname": {
             "command": ["hostname"],
             "description": "显示主机名"
         },
-        "sysinfo": {
+        "remote_server_cmd_sysinfo": {
             "command": ["uname", "-a"],
             "description": "显示系统信息 (Linux)"
         },
-        "disk": {
+        "remote_server_cmd_disk": {
             "command": ["df", "-h"],
             "description": "显示磁盘使用情况"
         },
-        "memory": {
+        "remote_server_cmd_memory": {
             "command": ["free", "-h"],
             "description": "显示内存使用情况"
         },
-        "processes": {
+        "remote_server_cmd_processes": {
             "command": ["top", "-bn1"],
             "description": "显示进程列表"
         },
-        "ip": {
+        "remote_server_cmd_ip": {
             "command": ["ipconfig"],
             "description": "显示 IP 配置 (Windows)"
         },
-        "update_blog": {
+        "remote_server_cmd_update_blog": {
             "command": ["bash", "-c", "cd /root/lxzyyds_blog && git pull && docker compose up -d --build"],
             "description": "更新个人博客"
         }
