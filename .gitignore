@@ -1,0 +1,8 @@
+# Ignore SK config (contains secrets)
+.sk
+__pycache__/
+*.pyc
+.venv/
+venv/
+uv.lock
+.codebuddy/
